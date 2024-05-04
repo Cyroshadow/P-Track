@@ -1,11 +1,15 @@
+#include <Stepper.h>
+
 #include <Keypad.h>
 #include <EEPROM.h>
 #include <SIM800L.h>
 #include <Stepper.h>
 #include <LiquidCrystal_I2C.h>
 
-const byte IR_Sens_Pin = 42;
 
+//Naming the pin numbers
+const byte IR_Sens_Pin = 42;
+const byte alarm_Pin = 6;
 
 //Initializing modules upon first use
 //Index 0 will be times per day, index 1 will be time intervals in hours, index 2 will be the time it was last dispensed, 
@@ -13,11 +17,11 @@ const byte IR_Sens_Pin = 42;
 //module has dispensed any pills throughout its lifetime, index 6 contains what kind of info it was dispensing last, index 7 is if it has dipensed and is waiting for confirmation
 //that the pill has been taken
 long modules[5][8]= {
-  {0, 0, 0, 0, 0, 0, 0, 0}, //Module 1
-  {0, 0, 0, 0, 0, 0, 0, 0}, //Module 2
-  {0, 0, 0, 0, 0, 0, 0, 0}, //Module 3
-  {0, 0, 0, 0, 0, 0, 0, 0}, //Module 4
-  {0, 0, 0, 0, 0, 0, 0, 0}, //Module 5
+  {0, 0, 0, 1, 0, 1, 0, 0}, //Module 1
+  {0, 0, 0, 2, 0, 1, 0, 0}, //Module 2
+  {0, 0, 0, 3, 0, 1, 0, 0}, //Module 3
+  {0, 0, 0, 0, 0, 1, 0, 0}, //Module 4
+  {0, 0, 0, 0, 0, 1, 0, 0}, //Module 5
 };
 
 //Define variables for use in module manipulation
@@ -30,19 +34,21 @@ const byte first_Time_Index = 5;
 const byte info_Display_Index = 6;
 const byte recently_Dispensed = 7;
 
+
 //Initializing variables
 int module_Id = 0; //Module that is being conifgured
 int dose = 0; //Set dose of a module
 int interval = 0; //Set interval of a module
-int last_Print = 0; //When the LCD last printed a change in the TLD
+int last_Print = 0; //When the LCD last printed a change in the TLT
 
 
 const int max_Minutes = 180; //Change to use hours later; 180 Minutes = 3hrs
 const int max_Dose = 12;
+const int stepsPerRevolution = 1024;
 
 bool config = false;
 bool display_Info = false;
-bool display_TLD = false;
+bool display_TLT = false;
 
 //Keypad inputs
 const byte ROWS = 4; 
@@ -59,16 +65,18 @@ byte rowPins[ROWS] = {30, 31, 32, 33};
 byte colPins[COLS] = {34, 35, 36, 37}; 
 
 Keypad key_Map = Keypad(makeKeymap(hexaKeys), rowPins, colPins, ROWS, COLS); 
-
-const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
 LiquidCrystal_I2C lcd(0x27, 16, 2);
+Stepper myStepper1(stepsPerRevolution, 8, 10, 9, 11);
+Stepper myStepper2(stepsPerRevolution, 23, 27, 25, 29);
+Stepper myStepper3(stepsPerRevolution, 22, 28, 24, 28);
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
 
 void setup(){
 
   pinMode(IR_Sens_Pin, INPUT);
-
+  pinMode(alarm_Pin, OUTPUT);
   lcd.init();
   //lcd.setCursor(0,0);
   //lcd.print("POTATOES");
@@ -78,6 +86,9 @@ void setup(){
   //lcd.print("BEST");
   lcd.backlight();
   Serial.begin(9600);
+  myStepper1.setSpeed(30);
+  myStepper2.setSpeed(30);
+  myStepper3.setSpeed(30);
 
   for (int i = 0; i <= 5; i++) {
     pinMode(modules[i][motor_Pin_Index], OUTPUT);
@@ -89,7 +100,7 @@ void loop(){
   
 char key_Pressed = key_Map.getKey();
 
-if (display_TLD) {
+if (display_TLT) {
     
     if (get_time_passed_gen(last_Print) >= 1) {
       modules[module_Id][info_Display_Index] = 2;
@@ -101,9 +112,10 @@ if (display_TLD) {
 }
 
 if (key_Pressed) 
+  //Serial.println(key_Pressed);
 {
   if (key_Pressed != '3') {
-    display_TLD = false;
+    display_TLT = false;
   }
   switch (key_Pressed) {
     case 'C': //Check if going to configure
@@ -124,8 +136,12 @@ if (key_Pressed)
 
     case 'N': //Dispense now
       //dispense_pill(255, 5, 13);
+      Serial.println(modules[module_Id][first_Time_Index]);
+      modules[module_Id][first_Time_Index] = false;
+      Serial.println(modules[module_Id][first_Time_Index]);
+      //dispense_pill(modules[module_Id][motor_Pin_Index]);
       modules[module_Id][time_Index] = millis();
-      modules[module_Id][first_Time_Index] = 1;
+      //modules[module_Id][recently_Dispensed] = true;
     break;
 
     case '9':
@@ -177,11 +193,11 @@ if (key_Pressed)
       break;
 
       case '3':
-        if (display_TLD) {
-          display_TLD = false; 
+        if (display_TLT) {
+          display_TLT = false; 
           lcd.clear();
         } else {
-          display_TLD = true; 
+          display_TLT = true; 
         }
       break;
 
@@ -193,29 +209,28 @@ if (key_Pressed)
 
   
 }
-  check_Taken();
-  check_dispensed();
   
-
+  check_dispense();
+  check_Taken();
+  
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //Check if a module is supposed to dispense a pill
-void check_dispensed() {
+void check_dispense() {
 for (int i = 0; i <= 5; i++) {
 
   get_time_passed(i);
 
-  if (modules[i][time_Passed_Index] >= modules[i][interval_Index] && modules[i][recently_Dispensed] == 1) {
+  if (modules[i][time_Passed_Index] >= modules[i][interval_Index]) {
     
-    if (modules[i][first_Time_Index] == 0) {
+    if (modules[i][first_Time_Index] == true || modules[i][recently_Dispensed] == true) {
       continue;
     }
-
-      dispense_pill(255, 5, modules[i][motor_Pin_Index]);
-      modules[i][recently_Dispensed] = 1;
-
+      digitalWrite(alarm_Pin, HIGH);
+      modules[i][recently_Dispensed] = true;
+      dispense_pill(modules[i][motor_Pin_Index]);
     }
   }
 }
@@ -292,26 +307,42 @@ void decrease_Interval(int module_Id) {
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void dispense_pill(int speed, int duration, int motor_Pin) {
+void dispense_pill(int motor_Pin) {
   
+  switch (motor_Pin) {
   
+  case 1:
+    myStepper1.step(stepsPerRevolution * 3.5);
+  break;
 
+  case 2:
+    myStepper2.step(stepsPerRevolution * 3.5);
+  break;
 
+  case 3:
+    myStepper3.step(stepsPerRevolution * 3.5);
+  break;
+  }
+  
 }
 
 void check_Taken() {
 
-  bool IR_Sens = !digitalRead(IR_Sens_Pin); //Check IR sensor if the pill was taken
+  bool IR_Sens = false; //digitalRead(IR_Sens_Pin); //Check IR sensor if the pill was taken
 
-  if (IR_Sens) {
+  if (IR_Sens) { //remove ! when actual testing
+  
+  digitalWrite(alarm_Pin, LOW); //Turn off alarm pin
+
     for (int i = 0; i < 5; i++) {
       
-      if (modules[i][recently_Dispensed] == 1) {
+      if (modules[i][recently_Dispensed] == true) {
+      modules[i][recently_Dispensed] = false; //confirm to machine pill has been taken
       modules[i][time_Index] = millis(); //Set time_index to current time
-      modules[i][recently_Dispensed] = 0; //confirm to machine pill has been taken
       }
       
     }
+    
   }
 
 }
@@ -392,19 +423,19 @@ void display_info(int info_Index) {
     break;
 
     case 2:
-    display_TLD = true;
+    display_TLT = true;
     lcd.print("Module #");
     lcd.print(module_Id);
     lcd.setCursor(0, 1);
-    if (modules[module_Id][first_Time_Index] != 0) {
-      lcd.print("TLD: "); //TLD means time last dispensed
-      lcd.print(modules[module_Id][time_Passed_Index]);
+    if (modules[module_Id][first_Time_Index] == false) {
+      lcd.print("TLT: "); //TLT means time last dispensed
+      lcd.print(modules[module_Id][time_Passed_Index] + 1);
       lcd.print("s ago "); 
     } else {
       lcd.setCursor(0, 1);
       lcd.print("Not setup!");
     }
-    Serial.print("TLD: "); //TLD means time last dispensed
+    Serial.print("TLT: "); //TLT means time last dispensed
     Serial.print(modules[module_Id][time_Passed_Index]);
     Serial.print("\n");
     break;
