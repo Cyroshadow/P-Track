@@ -65,8 +65,8 @@ byte rowPins[ROWS] = {30, 31, 32, 33};
 byte colPins[COLS] = {34, 35, 36, 37}; 
 
 Keypad key_Map = Keypad(makeKeymap(hexaKeys), rowPins, colPins, ROWS, COLS); 
-LiquidCrystal_I2C lcd(0x27, 16, 2);
-Stepper myStepper1(stepsPerRevolution, 8, 10, 9, 11);
+LiquidCrystal_I2C  lcd = LiquidCrystal_I2C(0x27, 16, 2);
+Stepper myStepper1(stepsPerRevolution, 8, 10, 9, 11);   
 Stepper myStepper2(stepsPerRevolution, 23, 27, 25, 29);
 Stepper myStepper3(stepsPerRevolution, 22, 28, 24, 28);
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -85,6 +85,7 @@ void setup(){
   //lcd.setCursor(0,2);
   //lcd.print("BEST");
   lcd.backlight();
+  
   Serial.begin(9600);
   myStepper1.setSpeed(30);
   myStepper2.setSpeed(30);
@@ -93,7 +94,7 @@ void setup(){
   for (int i = 0; i <= 5; i++) {
     pinMode(modules[i][motor_Pin_Index], OUTPUT);
   }
-  
+  lcd.print("Hello");
 }
   
 void loop(){
@@ -311,24 +312,24 @@ void dispense_pill(int motor_Pin) {
   
   switch (motor_Pin) {
   
-  case 1:
-    myStepper1.step(stepsPerRevolution * 3.5);
+  case 1:  
+    myStepper1.step(stepsPerRevolution * 2);
   break;
 
   case 2:
-    myStepper2.step(stepsPerRevolution * 3.5);
+    myStepper2.step(stepsPerRevolution * 2);
   break;
 
   case 3:
-    myStepper3.step(stepsPerRevolution * 3.5);
+    myStepper3.step(stepsPerRevolution * 2);
   break;
   }
   
 }
 
-void check_Taken() {
+void check_Taken() { 
 
-  bool IR_Sens = false; //digitalRead(IR_Sens_Pin); //Check IR sensor if the pill was taken
+  bool IR_Sens = true; //digitalRead(IR_Sens_Pin); //Check IR sensor if the pill was taken
 
   if (IR_Sens) { //remove ! when actual testing
   
